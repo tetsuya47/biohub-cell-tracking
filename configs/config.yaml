@@ -1,0 +1,7 @@
+defaults:
+  - dataset: biohub_cell_tracking
+  - model: baseline_detector
+  - tracking: default
+  - train: default
+  - logging: default
+  - _self_

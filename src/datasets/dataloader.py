@@ -8,13 +8,58 @@ from torch.utils.data import DataLoader, Dataset
 
 from src.datasets.torch_dataset import BiohubTorchDataset
 from src.preprocessing.transforms import TransformPipeline
+from src.preprocessing.target_generator import TargetGenerator
+
+
+class TransformedDataset(Dataset):
+    """Dataset wrapper that applies the pre-processing TransformPipeline and TargetGenerator."""
+
+    def __init__(self, ds: BiohubTorchDataset, tf: TransformPipeline, tg: TargetGenerator) -> None:
+        """Initialize the TransformedDataset.
+
+        Args:
+            ds: Base BiohubTorchDataset instance.
+            tf: Pre-processing TransformPipeline instance.
+            tg: TargetGenerator instance for ground truth heatmaps.
+        """
+        self.ds = ds
+        self.tf = tf
+        self.tg = tg
+
+    def __len__(self) -> int:
+        """Get length of dataset.
+
+        Returns:
+            int: Number of samples.
+        """
+        return len(self.ds)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        """Get transformed sample.
+
+        Args:
+            idx: Index of sample.
+
+        Returns:
+            Dict[str, torch.Tensor]: Transformed sample containing scaled image,
+                tensors for node IDs, positions, edges, and generated target heatmap.
+        """
+        sample = self.ds[idx]
+        transformed_sample = self.tf(sample)
+        
+        # Extract positions to generate dense supervision heatmap target
+        positions = transformed_sample["positions"]
+        target = self.tg.generate(positions)
+        
+        transformed_sample["target"] = target
+        return transformed_sample
 
 
 class BiohubDataLoader:
     """DataLoader builder for Biohub Cell Tracking data.
 
     Instantiates BiohubTorchDataset internally, applies the pre-processing
-    TransformPipeline, and returns a configured PyTorch DataLoader.
+    TransformPipeline and TargetGenerator, and returns a configured PyTorch DataLoader.
     """
 
     def __init__(
@@ -49,30 +94,22 @@ class BiohubDataLoader:
     def get_train_loader(self) -> DataLoader:
         """Create and configure the training PyTorch DataLoader.
 
-        Applies the data TransformPipeline.
+        Applies the data TransformPipeline and TargetGenerator.
 
         Returns:
             DataLoader: Configured PyTorch DataLoader.
         """
         # Load raw dataset internally
         raw_dataset = BiohubTorchDataset(self.zarr_path, self.geff_path)
+        
+        # Get shape dynamically from dataset reader
+        shape = raw_dataset.dataset.zarr_reader.get_shape()
+        volume_shape = shape[1:]
+        
+        target_generator = TargetGenerator(volume_shape=volume_shape)
         pipeline = TransformPipeline()
 
-        # Local transformed dataset helper class to comply with "exactly one class" requirement
-        class TransformedDataset(Dataset):
-            """Dataset wrapper that applies the pre-processing TransformPipeline."""
-
-            def __init__(self, ds: BiohubTorchDataset, tf: TransformPipeline) -> None:
-                self.ds = ds
-                self.tf = tf
-
-            def __len__(self) -> int:
-                return len(self.ds)
-
-            def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-                return self.tf(self.ds[idx])
-
-        transformed_dataset = TransformedDataset(raw_dataset, pipeline)
+        transformed_dataset = TransformedDataset(raw_dataset, pipeline, target_generator)
 
         return DataLoader(
             transformed_dataset,

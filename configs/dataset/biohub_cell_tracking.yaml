@@ -1,0 +1,2 @@
+name: biohub_cell_tracking
+volume_shape: [100, 64, 256, 256]

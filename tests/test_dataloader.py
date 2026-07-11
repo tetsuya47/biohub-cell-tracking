@@ -55,7 +55,7 @@ def test_dataloader_first_batch() -> None:
     batch = next(batch_iter)
 
     assert isinstance(batch, dict)
-    expected_keys = {"image", "node_ids", "positions", "edges"}
+    expected_keys = {"image", "node_ids", "positions", "edges", "target"}
     assert set(batch.keys()) == expected_keys
 
     # Check tensor types and batched shape (batch_size = 1 prepends a batch dim)
@@ -63,11 +63,13 @@ def test_dataloader_first_batch() -> None:
     node_ids = batch["node_ids"]
     positions = batch["positions"]
     edges = batch["edges"]
+    target = batch["target"]
 
     assert isinstance(image, torch.Tensor)
     assert isinstance(node_ids, torch.Tensor)
     assert isinstance(positions, torch.Tensor)
     assert isinstance(edges, torch.Tensor)
+    assert isinstance(target, torch.Tensor)
 
     # Image checks: float32, in range [0, 1]
     assert image.dtype == torch.float32
@@ -91,3 +93,6 @@ def test_dataloader_first_batch() -> None:
     assert edges.ndim == 3
     assert edges.shape[0] == 1
     assert edges.shape[2] == 2
+
+    # Target shape is (1, 1, Z, Y, X)
+    assert target.shape == (1, 1, Z, Y, X)
