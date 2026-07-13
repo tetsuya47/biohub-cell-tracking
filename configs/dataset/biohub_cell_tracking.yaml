@@ -1,2 +1,4 @@
 name: biohub_cell_tracking
 volume_shape: [100, 64, 256, 256]
+sigma: 1.5
+radius: 3.0
