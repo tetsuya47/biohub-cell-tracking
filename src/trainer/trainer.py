@@ -162,27 +162,79 @@ class Trainer:
         logger.info("Epoch %d, Average Validation Loss: %.6f", self.epoch, avg_loss)
         return avg_loss
 
-    def fit(self, num_epochs: int) -> Dict[str, list]:
+    def fit(
+        self,
+        num_epochs: int,
+        evaluator: Optional[Any] = None,
+        best_checkpoint_path: Optional[Union[str, Path]] = None,
+    ) -> Dict[str, list]:
         """Train the model for multiple epochs.
 
         Args:
             num_epochs: Number of epochs to train.
+            evaluator: Optional DetectionEvaluator instance for validation metrics.
+            best_checkpoint_path: Optional path to save the best model checkpoint.
 
         Returns:
-            Dict[str, list]: History dictionary containing 'train_loss' and 'val_loss' lists.
+            Dict[str, list]: History dictionary containing 'train_loss', 'val_loss',
+                'validation_loss', 'precision', 'recall', 'f1_score', and 'learning_rate' lists.
         """
-        history = {"train_loss": [], "val_loss": []}
-        
+        history = {
+            "train_loss": [],
+            "val_loss": [],
+            "validation_loss": [],
+            "precision": [],
+            "recall": [],
+            "f1_score": [],
+            "learning_rate": [],
+        }
+
+        best_f1 = -1.0
+        best_val_loss = float("inf")
+
         for _ in range(num_epochs):
             self.epoch += 1
             train_loss = self.train_epoch()
             val_loss = self.validate_epoch()
-            
+
+            current_lr = self.optimizer.param_groups[0]["lr"]
+
+            # If evaluator is provided, run automatic evaluation
+            if evaluator is not None:
+                eval_results = evaluator.evaluate()
+                precision = eval_results.get("precision", 0.0)
+                recall = eval_results.get("recall", 0.0)
+                f1 = eval_results.get("f1_score", 0.0)
+                # The evaluator mean_loss corresponds to the validation loss
+                eval_val_loss = eval_results.get("mean_loss", val_loss)
+            else:
+                precision, recall, f1 = 0.0, 0.0, 0.0
+                eval_val_loss = val_loss
+
             self.scheduler.step()
-            
+
+            # Record history
             history["train_loss"].append(train_loss)
             history["val_loss"].append(val_loss)
-            
+            history["validation_loss"].append(eval_val_loss)
+            history["precision"].append(precision)
+            history["recall"].append(recall)
+            history["f1_score"].append(f1)
+            history["learning_rate"].append(current_lr)
+
+            # Check if this is the best epoch and save checkpoint
+            if best_checkpoint_path is not None:
+                if evaluator is not None:
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        self.save_checkpoint(best_checkpoint_path)
+                        logger.info("New best F1 score: %.4f. Saved best checkpoint.", best_f1)
+                else:
+                    if eval_val_loss < best_val_loss:
+                        best_val_loss = eval_val_loss
+                        self.save_checkpoint(best_checkpoint_path)
+                        logger.info("New best validation loss: %.6f. Saved best checkpoint.", best_val_loss)
+
         return history
 
     def save_checkpoint(self, path: Union[str, Path]) -> None:
